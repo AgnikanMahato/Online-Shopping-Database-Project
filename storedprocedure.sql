@@ -1,48 +1,46 @@
--- STORED PROCEDURE
--- Compute the average amount of product of a brand and then use it to modify the quantity of product specified by user the in save_to_shopping_cart relation
-CREATE FUNCTION func1 (vpid integer, vbrand character varying) RETURNS integer
-	LANGUAGE plpgsql
+-- Stored Procedure to compute the average amount of products of a brand
+-- and update the quantity in save_to_shopping_cart relation
+CREATE OR REPLACE FUNCTION func1(vpid INTEGER, vbrand VARCHAR) RETURNS INTEGER
+    LANGUAGE plpgsql
 AS $$
 DECLARE
-v_amount INTEGER;
-C1 CURSOR FOR SELECT AVG(amount) FROM product WHERE brand = vbrand;
+    v_amount INTEGER;
 BEGIN
-OPEN C1;
-FETCH C1 INTO v_amount;
-UPDATE save_to_shopping_cart SET quantity = v_amount WHERE pid = vpid;
-RETURN v_amount;
-CLOSE C1;
-END
-$$
+    SELECT AVG(amount) INTO v_amount FROM product WHERE brand = vbrand;
+    
+    UPDATE save_to_shopping_cart SET quantity = v_amount WHERE pid = vpid;
+    
+    RETURN v_amount;
+END;
+$$;
 
--- EXECUTE
-SELECT fun1(8,'Microsoft');
+-- Execute the stored procedure
+SELECT func1(8, 'Microsoft');
 
--- RECOVER
-UPDATE save_to_shopping_cart SET quantity = 1 where pid = 8;
+-- Recover by resetting quantity for pid = 8
+UPDATE save_to_shopping_cart SET quantity = 1 WHERE pid = 8;
 
--- TRIGGER PROCEDURE
-CREATE TABLE shoppingcart_audits(
-  id SERIAL PRIMARY KEY,
-  userid INT NOT NULL,
-  pid INT NOT NULL,
-  quantity INT NOT NULL,
-  changed_on TIMESTAMP(6) NOT NULL
+-- Trigger Procedure for auditing quantity changes in shopping cart
+CREATE TABLE IF NOT EXISTS shoppingcart_audits (
+    id SERIAL PRIMARY KEY,
+    userid INT NOT NULL,
+    pid INT NOT NULL,
+    quantity INT NOT NULL,
+    changed_on TIMESTAMP(6) NOT NULL
 );
 
 CREATE OR REPLACE FUNCTION shoppingcart_quantity_changes()
-  RETURNS TRIGGER AS $$
+    RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW.quantity <> OLD.quantity THEN
-    INSERT INTO shoppingcart_audits (userid, pid, quantity,changed_on)
-    VALUES ( OLD.userid, OLD.pid, OLD.quantity, now());
-  END IF;
-  RETURN NEW;
+    IF NEW.quantity <> OLD.quantity THEN
+        INSERT INTO shoppingcart_audits (userid, pid, quantity, changed_on)
+        VALUES (OLD.userid, OLD.pid, OLD.quantity, now());
+    END IF;
+    RETURN NEW;
 END;
-$$ LANGUAGE 'plpgsql';
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER quantity_changes
-  BEFORE UPDATE
-  ON save_to_shopping_cart
-  FOR EACH ROW
-  EXECUTE PROCEDURE shoppingcart_quantity_changes();
+    BEFORE UPDATE ON save_to_shopping_cart
+    FOR EACH ROW
+    EXECUTE FUNCTION shoppingcart_quantity_changes();
